@@ -1,0 +1,17 @@
+# Ignore all video files (MP4, WEBM, etc.)
+videos/
+videosR/
+
+# Ignore compressed archives
+*.zip
+
+# Ignore ffmpeg binaries
+ffmpeg.exe
+ffplay.exe
+ffprobe.exe
+
+# Ignore Python cache/bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.py
