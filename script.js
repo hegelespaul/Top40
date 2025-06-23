@@ -323,7 +323,7 @@ function loadRandomVisuals() {
     }
 
     const idx = urn[urnIndex++];
-
+    video.crossOrigin = "anonymous"; // Must be set BEFORE .src
     video.src = videoSrcs[idx];
     video.muted = true;
 
