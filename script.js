@@ -212,7 +212,7 @@ video.playsInline = true;
 video.autoplay = true;
 
 // Setup video texture
-const videoTexture = gl.createTexture();
+let videoTexture = gl.createTexture();
 gl.bindTexture(gl.TEXTURE_2D, videoTexture);
 gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -228,32 +228,28 @@ function generateRandomCropOffsets() {
     cropOffsets[i * 2] = Math.random() * (1 - 1 / GRID_COLS);
     cropOffsets[i * 2 + 1] = Math.random() * (1 - 1 / GRID_ROWS);
   }
-  // upload uniform
   gl.useProgram(program);
   gl.uniform1fv(cropOffsetsLoc, cropOffsets);
 }
 
-// Initial crop offsets
 generateRandomCropOffsets();
 
 let pitchShift, player, reverb;
 let remainingAudioIndices = [];
 
-// Reset urn
 function refillAudioUrn() {
   remainingAudioIndices = [...Array(videoSrcs.length).keys()];
   shuffleArray(remainingAudioIndices);
 }
 
-// Shuffle helper
 function shuffleArray(array) {
   for (let i = array.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [array[i], array[j]] = [array[j], array[i]];
   }
+  return array;
 }
 
-// Play next audio from urn
 async function playRandomAudioWithPitch() {
   await Tone.start();
 
@@ -261,102 +257,86 @@ async function playRandomAudioWithPitch() {
 
   const audioIndex = remainingAudioIndices.pop();
   const audioSrc = videoSrcs[audioIndex];
+  const blobUrl = await fetchAsBlobURL(audioSrc);
 
   if (pitchShift) pitchShift.dispose();
-  if (player) player.dispose();
   if (reverb) reverb.dispose();
+  if (player) player.dispose();
 
-  // 🎛 Create a large reverb
-  reverb = new Tone.Reverb({
-    decay: 10,      // long tail
-    preDelay: 0, // delay before reverb starts
-  }).toDestination();
-
-  // Load the reverb impulse response
+  reverb = new Tone.Reverb({ decay: 5, preDelay: 0.5, gain: 3 }).toDestination();
   await reverb.generate();
 
   pitchShift = new Tone.PitchShift({
-    pitch: Math.floor(Math.random() * 6) - Math.floor(Math.random() * 6),
-  });
-
-  // Connect: player → pitchShift → reverb → destination
-  pitchShift.connect(reverb);
+    pitch: Math.floor(Math.random() * 6) - Math.floor(Math.random() * 6) - 1,
+  }).connect(reverb);
 
   player = new Tone.Player({
-    url: audioSrc,
+    url: blobUrl,
     autostart: true,
     loop: false,
-    onload: () => {
-      player.connect(pitchShift);
-    },
+    onload: () => player.connect(pitchShift),
     onstop: () => {
-      playRandomAudioWithPitch(); // 🔁 Auto-next
+      URL.revokeObjectURL(blobUrl);
+      playRandomAudioWithPitch();
     }
   });
 }
 
-
 let visualIntervalId = null;
-let urn = [];       // shuffled indexes of videos
-let urnIndex = 0;   // current index in the urn
+let urn = [];
+let urnIndex = 0;
 
-function shuffleArray(arr) {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr;
+async function fetchAsBlobURL(src) {
+  const response = await fetch(src, { cache: "no-store" });
+  const blob = await response.blob();
+  return URL.createObjectURL(blob);
 }
 
-function loadRandomVisuals() {
-  if (visualIntervalId !== null) {
-    clearInterval(visualIntervalId);
-  }
-
-  urn = shuffleArray([...Array(videoSrcs.length).keys()]); // create and shuffle urn
+function startVisualLoop() {
+  // Initialize the urn before starting
+  urn = shuffleArray([...Array(videoSrcs.length).keys()]);
   urnIndex = 0;
-
+  
   visualIntervalId = setInterval(() => {
-    if (urnIndex >= urn.length) {
-      urn = shuffleArray([...Array(videoSrcs.length).keys()]); // reshuffle when empty
-      urnIndex = 0;
-    }
+    (async () => {
+      if (urnIndex >= urn.length) {
+        urn = shuffleArray([...Array(videoSrcs.length).keys()]);
+        urnIndex = 0;
+      }
 
-    const idx = urn[urnIndex++];
-    video.crossOrigin = "anonymous"; // Must be set BEFORE .src
-    video.src = videoSrcs[idx];
-    video.muted = true;
+      const idx = urn[urnIndex++];
+      video.crossOrigin = "anonymous";
 
-    // Wait for metadata to get duration, then pick random start time
-    video.onloadedmetadata = () => {
-      const duration = video.duration;
-      const maxStart = Math.max(0, duration - 5);
-      const randomStart = Math.random() * maxStart;
+      const videoBlobUrl = await fetchAsBlobURL(videoSrcs[idx]);
 
-      // Set time but **wait for seeking to complete before playing**
-      video.currentTime = randomStart;
+      if (video.src) {
+        URL.revokeObjectURL(video.src);
+      }
 
-      video.onseeked = () => {
-        video.loop = true;
-        video.play();
-        generateRandomCropOffsets();
+      video.pause();
+      video.src = videoBlobUrl;
+      video.load();
+      video.muted = true;
 
-        // Cleanup
-        video.onseeked = null;
-        video.onloadedmetadata = null;
+      video.onloadedmetadata = () => {
+        const duration = video.duration;
+        const maxStart = Math.max(0, duration - 5);
+        const randomStart = Math.random() * maxStart;
+
+        video.currentTime = randomStart;
+
+        video.onseeked = () => {
+          video.loop = true;
+          video.play();
+          generateRandomCropOffsets();
+
+          video.onseeked = null;
+          video.onloadedmetadata = null;
+        };
       };
-    };
-
-    // loadRandomVisuals()
-
+    })();
   }, 5000);
 }
-
-document.body.addEventListener('click', async () => {
-  await playRandomAudioWithPitch();
-  loadRandomVisuals();
-}, { once: true });
-
 
 // Setup MediaPipe Pose
 const pose = new Pose({
@@ -370,7 +350,6 @@ pose.setOptions({
   minTrackingConfidence: 0.5,
 });
 
-
 pose.onResults((results) => {
   if (!results.poseLandmarks) return;
 
@@ -382,31 +361,92 @@ pose.onResults((results) => {
   }
 });
 
-// Setup webcam input video (hidden)
 const inputVideo = document.getElementById('input_video');
-const camera = new Camera(inputVideo, {
-  onFrame: async () => {
-    await pose.send({ image: inputVideo });
-  },
-  width: 640,
-  height: 480,
-});
-camera.start();
+let camera;
 
-// Render loop
+function startCamera() {
+  camera = new Camera(inputVideo, {
+    onFrame: async () => {
+      await pose.send({ image: inputVideo });
+    },
+    width: 640,
+    height: 480,
+  });
+  camera.start();
+}
+
+let animationFrameId = null;
+
 function render() {
   if (video.readyState >= video.HAVE_CURRENT_DATA) {
     gl.bindTexture(gl.TEXTURE_2D, videoTexture);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, video);
-
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGB, gl.UNSIGNED_BYTE, video);
     gl.clearColor(0, 0, 0, 1);
     gl.clear(gl.COLOR_BUFFER_BIT);
-
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
-  requestAnimationFrame(render);
+
+  animationFrameId = requestAnimationFrame(render);
 }
 
 video.addEventListener('play', () => {
+  if (animationFrameId) {
+    cancelAnimationFrame(animationFrameId);
+  }
+
+  if (videoTexture) {
+    gl.deleteTexture(videoTexture);
+  }
+  videoTexture = gl.createTexture();
+
+  gl.bindTexture(gl.TEXTURE_2D, videoTexture);
+  gl.texImage2D(
+    gl.TEXTURE_2D,
+    0,
+    gl.RGB,
+    video.videoWidth,
+    video.videoHeight,
+    0,
+    gl.RGB,
+    gl.UNSIGNED_BYTE,
+    null
+  );
+
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
   render();
+});
+
+// Fullscreen function
+function enterFullscreen() {
+  const elem = document.documentElement;
+  if (elem.requestFullscreen) {
+    elem.requestFullscreen();
+  } else if (elem.webkitRequestFullscreen) {
+    elem.webkitRequestFullscreen();
+  } else if (elem.msRequestFullscreen) {
+    elem.msRequestFullscreen();
+  }
+}
+
+// Start button event
+document.getElementById('startButton').addEventListener('click', async () => {
+  // Hide start screen
+  document.getElementById('startScreen').style.display = 'none';
+  document.body.style.cursor = 'none'; // Hide cursor
+  
+  // Enter fullscreen
+  enterFullscreen();
+  
+  // Start audio
+  await playRandomAudioWithPitch();
+  
+  // Start visual loop
+  startVisualLoop();
+  
+  // Start camera
+  startCamera();
 });

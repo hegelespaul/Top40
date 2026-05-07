@@ -1,6 +1,8 @@
 # Ignore all video files (MP4, WEBM, etc.)
 videos/
 videosR/
+videosR_nosound/
+videosR0/
 
 # Ignore compressed archives
 *.zip
