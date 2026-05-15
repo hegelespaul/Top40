@@ -1,3 +1,109 @@
+// === LOADING SYSTEM ===
+class LoadingManager {
+  constructor() {
+    this.elements = {
+      container: document.getElementById('loadingContainer'),
+      text: document.getElementById('loadingText'),
+      progressBar: document.getElementById('progressBar'),
+      icons: {
+        libraries: document.getElementById('icon-libraries'),
+        camera: document.getElementById('icon-camera'),
+        audio: document.getElementById('icon-audio'),
+        video: document.getElementById('icon-video')
+      }
+    };
+    
+    this.progress = {
+      libraries: 0,
+      camera: 0,
+      audio: 0,
+      video: 0
+    };
+  }
+
+  show() {
+    this.elements.container.classList.add('visible');
+  }
+
+  hide() {
+    this.elements.container.classList.remove('visible');
+  }
+
+  updateProgress(step, percent) {
+    this.progress[step] = percent;
+    
+    // Update icon
+    const icon = this.elements.icons[step];
+    if (percent < 100) {
+      icon.classList.add('loading');
+      icon.classList.remove('complete');
+    } else {
+      icon.classList.remove('loading');
+      icon.classList.add('complete');
+    }
+    
+    // Calculate total progress
+    const total = Object.values(this.progress).reduce((a, b) => a + b, 0) / 4;
+    this.elements.progressBar.style.width = total + '%';
+    
+    // Update progress bar animation
+    if (total >= 100) {
+      this.elements.progressBar.classList.remove('pulse');
+    } else {
+      this.elements.progressBar.classList.add('pulse');
+    }
+  }
+
+  setText(text) {
+    this.elements.text.textContent = text;
+  }
+
+  setStep(step, status) {
+    const messages = {
+      libraries: { loading: 'Cargando librerías...', done: 'Librerías listas' },
+      camera: { loading: 'Iniciando cámara...', done: 'Cámara lista' },
+      audio: { loading: 'Preparando audio...', done: 'Audio listo' },
+      video: { loading: 'Cargando video...', done: 'Video listo' }
+    };
+    
+    this.setText(messages[step][status]);
+    
+    if (status === 'loading') {
+      this.updateProgress(step, 0);
+    } else if (status === 'done') {
+      this.updateProgress(step, 100);
+    }
+  }
+}
+
+const loadingManager = new LoadingManager();
+
+// Check if libraries are loaded on page load
+let librariesLoaded = false;
+
+function checkLibrariesLoaded() {
+  return typeof Pose !== 'undefined' && 
+         typeof Camera !== 'undefined' && 
+         typeof Tone !== 'undefined';
+}
+
+// Monitor library loading
+const libraryCheckInterval = setInterval(() => {
+  if (checkLibrariesLoaded() && !librariesLoaded) {
+    librariesLoaded = true;
+    loadingManager.updateProgress('libraries', 100);
+    clearInterval(libraryCheckInterval);
+  } else if (!librariesLoaded) {
+    const currentProgress = loadingManager.progress.libraries;
+    loadingManager.updateProgress('libraries', Math.min(90, currentProgress + 10));
+  }
+}, 200);
+
+// Show loading icons as "waiting" on page load
+window.addEventListener('DOMContentLoaded', () => {
+  loadingManager.updateProgress('libraries', 10);
+});
+
 const videoSrcs = [
   "https://hepedroza.com/videosR/1.mp4",
   "https://hepedroza.com/videosR/2.mp4",
